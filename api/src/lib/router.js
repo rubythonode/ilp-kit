@@ -13,6 +13,7 @@ const InviteController = require('../controllers/invites')
 const PeerController = require('../controllers/peers')
 const SettlementsController = require('../controllers/settlements')
 const SettlementMethodsController = require('../controllers/settlement_methods')
+const ReceiverController = require('../controllers/receivers')
 
 module.exports = class Router {
   static constitute() { return [ Container ] }
@@ -51,6 +52,9 @@ module.exports = class Router {
 
     const settlements = this.container.constitute(SettlementsController)
     settlements.init(this.router)
+
+    const receivers = this.container.constitute(ReceiverController)
+    receivers.init(this.router)
   }
 
   attach(app) {
