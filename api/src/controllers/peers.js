@@ -116,8 +116,8 @@ function PeersControllerFactory(auth, config, log, Peer, connector) {
       try {
         this.body = yield connector.rpc(prefix, method, params)
       } catch (e) {
-        // Server is not ready yet
-        log.err('connector.rpc() failed', e)
+        // if rpc error, e.g. server is not ready yet or trustline exceeded
+        log.err('connector.rpc() failed: ', e.stack)
       }
     }
   }
