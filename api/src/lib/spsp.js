@@ -1,25 +1,40 @@
 "use strict"
 
 const co = require('co')
+const crypto = require('crypto')
 const uuid = require('uuid4')
 const superagent = require('superagent-promise')(require('superagent'), Promise)
 const BigNumber = require('bignumber.js')
+const stringify = require('canonical-json')
+const base64url = require('base64url')
 const debug = require('debug')('ilp-kit:spsp')
 
 const ILP = require('ilp')
 const PluginBellsFactory = require('ilp-plugin-bells').Factory
 
 const PaymentFactory = require('../models/payment')
+const ReceiverFactory = require('../models/receiver')
+const UserFactory = require('../models/user')
 const Config = require('./config')
 const Socket = require('./socket')
 const Ledger = require('./ledger')
 const Utils = require('./utils')
 
+const SSP_CONDITION_STRING = 'ilp_ssp_condition'
+
+function hmac(key, message) {
+  const hm = crypto.createHmac('sha256', key)
+  hm.update(message, 'utf8')
+  return hm.digest()
+}
+
 // TODO exception handling
 module.exports = class SPSP {
-  static constitute() { return [Config, PaymentFactory, Socket, Ledger, Utils] }
-  constructor(config, Payment, socket, ledger, utils) {
+  static constitute() { return [Config, PaymentFactory, ReceiverFactory, UserFactory, Socket, Ledger, Utils] }
+  constructor(config, Payment, Receiver, User, socket, ledger, utils) {
     this.Payment = Payment
+    this.Receiver = Receiver
+    this.User = User
     this.socket = socket
     this.config = config
     this.ledger = ledger
@@ -38,7 +53,7 @@ module.exports = class SPSP {
       globalSubscription: true
     })
 
-    this.factory.on('notification', this._handleNotification.bind(this))
+    this.factory.on('incoming_prepare', co.wrap(this._handleIncomingPreparedTransfer).bind(this))
 
     this.connect()
   }
@@ -232,6 +247,17 @@ module.exports = class SPSP {
     }), 15000)
   }
 
+  getSharedSecretForReceiver(receiver, username) {
+    const prefix = this.config.data.getIn(['ledger', 'prefix'])
+    const destinationAccount = prefix + username + '.~recv.' + receiver.name
+    const sharedSecret = base64url(hmac(this.config.data.get('sspSecret'), String(receiver.user) + ':' + receiver.name).slice(0, 16))
+
+    return {
+      destination_account: destinationAccount,
+      shared_secret: sharedSecret
+    }
+  }
+
   * createRequest(destinationUser, destinationAmount) {
     const precisionAndScale = yield this.ledger.getInfo()
     // TODO Turn all of the numbers to bignumber
@@ -255,7 +281,57 @@ module.exports = class SPSP {
     return request
   }
 
-  _handleNotification(notification) {
-    console.log('plugin bells event', notification)
+  * _handleIncomingPreparedTransfer(account, transfer) {
+    const user = yield this.User.findOne({ where: { username: account }})
+    const plugin = yield this.factory.create({ username: account })
+
+    const ilpHeader = transfer.data.ilp_header
+    const address = ilpHeader.account
+    if (address.indexOf(plugin.getAccount()) !== 0) {
+      debug('received transfer with unexpected ilp address expected=%s got=%s', plugin.getAccount(), address)
+      return
+    }
+
+    const localPart = address.slice(plugin.getAccount().length + 1)
+
+    if (localPart.indexOf('~recv.') !== 0) {
+      return
+    }
+
+    const [receiverName] = localPart.slice('~recv.'.length).split('.', 1)
+
+    const receiver = yield this.Receiver.findOne({ where: { user: user.id, name: receiverName } })
+
+    if (receiver.webhook) {
+      debug('sending webhook to url=%s', receiver.webhook)
+      const res = yield superagent
+        .post(receiver.webhook)
+        .send({
+          transfer,
+          amount: transfer.amount,
+          data: ilpHeader.data
+        })
+        .end()
+
+      debug('webhook completed with status=%d', res.status)
+
+      const packet = {
+        address,
+        amount: transfer.amount,
+        expires_at: ilpHeader.data.expires_at
+      }
+
+      const packetForSigning = stringify(packet)
+      const sharedSecret = Buffer.from(this.getSharedSecretForReceiver(receiver, account).shared_secret, 'base64')
+      const sspConditionKey = hmac(sharedSecret, SSP_CONDITION_STRING)
+      const fulfillment = 'cf:0:' + base64url(hmac(sspConditionKey, packetForSigning))
+
+      if (res.status === 200 && res.body.fulfill === true) {
+        debug('webhook requested that the payment should be fulfilled')
+        plugin.fulfillCondition(transfer.id, fulfillment)
+      } else {
+        debug('webhook requested that the payment be rejected')
+      }
+    }
   }
 }

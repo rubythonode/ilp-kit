@@ -91,6 +91,10 @@ export function uuid(value) {
 }
 
 export function https(value) {
+  if (value && value.indexOf('http:') === 0) {
+    return 'Must be HTTPS'
+  }
+
   if (!isEmpty(value) &&
     !/^https:\/\/[^\s/$.?#].[^\s]*$/i.test(value)) {
     return 'Invalid'

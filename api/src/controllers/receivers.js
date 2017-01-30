@@ -7,14 +7,24 @@ const Auth = require('../lib/auth')
 const Log = require('../lib/log')
 const Config = require('../lib/config')
 const Connector = require('../lib/connector')
+const SPSP = require('../lib/spsp')
 const ReceiverFactory = require('../models/receiver')
 
 const NotFoundError = require('../errors/not-found-error')
 const InvalidBodyError = require('../errors/invalid-body-error')
 
-ReceiversControllerFactory.constitute = [Auth, Config, Log, ReceiverFactory, Connector]
-function ReceiversControllerFactory(auth, config, log, Receiver, connector) {
+
+ReceiversControllerFactory.constitute = [Auth, Config, Log, ReceiverFactory, Connector, SPSP]
+function ReceiversControllerFactory(auth, config, log, Receiver, connector, spsp) {
   log = log('receivers')
+
+  function receiverToExternal(username, receiver) {
+    return Object.assign(
+      {},
+      receiver.getDataExternal(),
+      spsp.getSharedSecretForReceiver(receiver, username)
+    )
+  }
 
   return class ReceiversController {
     static init(router) {
@@ -32,7 +42,10 @@ function ReceiversControllerFactory(auth, config, log, Receiver, connector) {
         order: [['created_at', 'DESC']]
       })
 
-      this.body = receivers
+      const receiversWithSecrets = yield receivers
+        .map(receiverToExternal.bind(null, user.username))
+
+      this.body = receiversWithSecrets
     }
 
     static * postResource() {
@@ -48,7 +61,7 @@ function ReceiversControllerFactory(auth, config, log, Receiver, connector) {
 
       yield receiver.save()
 
-      this.body = receiver
+      this.body = receiverToExternal(user.username, receiver)
     }
 
     static * putResource() {
@@ -64,7 +77,7 @@ function ReceiversControllerFactory(auth, config, log, Receiver, connector) {
       receiver.webhook = webhook
       receiver = Receiver.fromDatabaseModel(yield receiver.save())
 
-      this.body = receiver
+      this.body = receiverToExternal(user.username, receiver)
     }
 
     static * deleteResource() {

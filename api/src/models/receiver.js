@@ -3,16 +3,27 @@
 module.exports = ReceiverFactory
 
 const _ = require('lodash')
+const crypto = require('crypto')
+const base64url = require('base64url')
 const Model = require('five-bells-shared').Model
 const PersistentModelMixin = require('five-bells-shared').PersistentModelMixin
 const Database = require('../lib/db')
+const Config = require('../lib/config')
 const Validator = require('five-bells-shared/lib/validator')
 const Sequelize = require('sequelize')
 
-ReceiverFactory.constitute = [Database, Validator]
-function ReceiverFactory(sequelize, validator) {
+function hmac(key, message) {
+  const hm = crypto.createHmac('sha256', key)
+  hm.update(message, 'utf8')
+  return hm.digest()
+}
+
+ReceiverFactory.constitute = [Database, Validator, Config]
+function ReceiverFactory(sequelize, validator, config) {
   class Receiver extends Model {
     static convertFromExternal(data) {
+      delete data.shared_secret
+
       return data
     }
 

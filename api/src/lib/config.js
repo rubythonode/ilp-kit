@@ -32,6 +32,7 @@ module.exports = class WalletConfig {
     localConfig.secret = Config.getEnv(envPrefix, 'SECRET')
     localConfig.sessionSecret = this.generateSecret('session').toString('base64')
     localConfig.conditionSecret = this.generateSecret('condition')
+    localConfig.sspSecret = this.generateSecret('ssp')
 
     // Github
     localConfig.github = {

@@ -57,6 +57,8 @@ export default class ReceiversSettings extends Component {
             <li key={index} className="list-group-item">
               <h4 className="list-group-item-heading">{user.username}+{receiver.name}@{config.clientHost}</h4>
               <p><strong>Webhook</strong><br />{receiver.webhook}</p>
+              <p><strong>Destination Account</strong><br />{receiver.destination_account}</p>
+              <p><strong>Shared Secret</strong><br />{receiver.shared_secret}</p>
               <button type="button" className="btn btn-danger" onClick={this.handleRemove.bind(null, receiver)}>Remove</button>
             </li>
           ))}
