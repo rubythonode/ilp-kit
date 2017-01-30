@@ -32,10 +32,7 @@ const httpsProxy = HttpProxy.createServer({
 
 function handleError(err, req, res) {
   if (res) {
-    res.writeHead(500, {
-      'Content-Type': 'text/plain'
-    })
-
+    res.statusCode = 500
     res.end('ilp-kit proxy error: ' + err)
   }
 
